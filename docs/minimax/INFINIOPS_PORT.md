@@ -107,7 +107,25 @@ pytest tests/test_lightning_attention_infinilm.py -v
 - 只想先验 CPU：把第 1、3 步的 `-DWITH_NVIDIA=ON` 去掉即可（更快，也不需要 CUDA/CUTLASS）。
 - 想只编本算子加速 configure/build：追加 `--config-settings=cmake.define.INFINI_OPS_OPS=lightning_attention_infinilm`。
 
-## 5. 已知限制与下一步
+## 5. NVIDIA 服务器实测记录（2026-09-12）
+
+| 项目 | 结果 |
+|---|---|
+| 环境 | Ubuntu 24.04 容器；CUDA Toolkit 12.8.61；CMake 3.31.4；g++ 13.3.0；Python 3.12.3 |
+| GPU | NVIDIA GeForce RTX 5090（**sm_120 / Blackwell**），驱动 610.43.02（CUDA UMD 13.3） |
+| InfiniRT | 编译安装成功（`-DWITH_CPU=ON -DWITH_NVIDIA=ON -DCMAKE_CUDA_ARCHITECTURES=120`） |
+| InfiniOps | wheel 构建成功：`infiniops-0.1.0-cp312-cp312-linux_x86_64.whl`（2.75 MB）并安装；全部 CUDA 源码在 sm_120 下编译通过（含依赖 CUTLASS 的算子） |
+| 本算子测试 | `pytest tests/test_lightning_attention_infinilm.py -v` → **48 passed** |
+| 覆盖 | 后端 CPU + CUDA；dtype float32/float16/bfloat16；4 组形状（`seq_len` 为 1 与 5，`batch` 为 1~3）；「输出」与「状态池」两个断言用例；读行≠写行的「初始行只读」契约 |
+
+> 构建时必须显式指定 `CMAKE_CUDA_ARCHITECTURES=120`：InfiniOps 默认按 sm_80 生成 cubin，而 sm_80 的二进制在 sm_120 上无法运行（会报 `no kernel image is available for execution on the device`）。
+
+联调期间发现并修复的三处问题（均已包含在补丁中）：
+
+1. `initial_state` 曾声明为 `const Tensor`，而该张量需要被就地更新 → 编译期 `invalid type conversion`（已改为非常量视图，`q/k/v/slope/indices` 保持 const）；
+2. 测试曾使用 `final_index = initial_index + 1`，使请求 `b=0` 的**写入行**成为请求 `b=1` 的**读取行**——CPU 串行语义与 CUDA 并行语义因此不一致（已改为跨请求读写行互不相交，并把「请求独立、可并发执行」写入算子契约）；
+3. torch 参考实现未模拟「状态按张量 dtype 存储」的舍入，低估了 bf16 误差（参考实现已同步每步舍入；bf16 容差调为 `4e-2`，理由是递推累积）。
+## 6. 已知限制与下一步
 
 - 本机（Windows，无 CMake）**未编译**本补丁；只做了 `py_compile`、人工复核与补丁反向校验（`git apply --check -R` 通过）。首次在服务器上编译可能有细节需要微调，按报错修即可。
 - CUDA kernel 假定 `head_dim` 能放进一个 block（`head_dim <= Backend::max_block_size`，launcher 里有 assert），典型 MiniMax `head_dim = 128` 满足。

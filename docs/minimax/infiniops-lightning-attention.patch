@@ -538,10 +538,10 @@ index 0000000..e90c52b
 +#endif  // INFINI_OPS_CUDA_LIGHTNING_ATTENTION_INFINILM_KERNEL_H_
 diff --git a/tests/test_lightning_attention_infinilm.py b/tests/test_lightning_attention_infinilm.py
 new file mode 100644
-index 0000000..a31e725
+index 0000000..5a458c7
 --- /dev/null
 +++ b/tests/test_lightning_attention_infinilm.py
-@@ -0,0 +1,119 @@
+@@ -0,0 +1,122 @@
 +import infini.ops
 +import pytest
 +import torch
@@ -556,10 +556,13 @@ index 0000000..a31e725
 +    (1, 5, 4, 8, 2),
 +)
 +
++# The recurrent state is stored in the tensor dtype, so rounding accumulates
++# over the sequence; reduced-precision cases therefore need looser tolerances
++# than a single elementwise operator would.
 +_DTYPE_CASES = (
 +    (torch.float32, 1e-5, 1e-6),
 +    (torch.float16, 2e-2, 2e-2),
-+    (torch.bfloat16, 2e-2, 2e-2),
++    (torch.bfloat16, 4e-2, 4e-2),
 +)
 +
 +

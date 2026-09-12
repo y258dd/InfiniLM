@@ -204,7 +204,8 @@ git apply /path/to/lightning-attention-infinicore.patch
 | P1 | NVIDIA 服务器：编译验证（1 小时） | 验证 CUDA kernel 可编译；失败把日志给我，我来修 |
 | P2 | NVIDIA 服务器：跑三个测试（半天） | 拿到 GPU 实测证据（评审材料里「只有 CPU 验证」是弱点） |
 | P3 | 昇腾服务器：**只做平台不回归验证** | 当前 minimax 在昇腾跑不了（缺昇腾 kernel、MoE runner 为 CUDA 专属、CI ascend 段被注释） |
-| P4 | InfiniOps 移植（可选加分） | 建议等 InfiniLM 上游跟进新版后再做，否则无法端到端验证；方案见 `PORTING.md` |
+| P4 | **InfiniOps 移植（已完成 ✅）** | 已在 NVIDIA（RTX 5090 / sm_120）上构建并测试：**48/48 通过**；详见 `INFINIOPS_PORT.md` 与 `infiniops-lightning-attention.patch` |
+| P5 | 昇腾后端（可选加分） | 在 InfiniOps 的 `src/native/ascend/ops/lightning_attention_infinilm/` 补昇腾实现（当前只有 CPU + NVIDIA 后端） |
 
 
 
