@@ -207,5 +207,14 @@ git apply /path/to/lightning-attention-infinicore.patch
 | P4 | **InfiniOps 移植（已完成 ✅）** | 已在 NVIDIA（RTX 5090 / sm_120）上构建并测试：**48/48 通过**；详见 `INFINIOPS_PORT.md` 与 `infiniops-lightning-attention.patch` |
 | P5 | 昇腾后端（可选加分） | 在 InfiniOps 的 `src/native/ascend/ops/lightning_attention_infinilm/` 补昇腾实现（当前只有 CPU + NVIDIA 后端） |
 
+## 8. 归档记录（最终）
 
+| 线 | 仓库 | 分支 | 提交 / tag | 状态 |
+|---|---|---|---|---|
+| **旧架构**（重构前 InfiniCore） | `y258dd/InfiniLM` | `archive/minimax` | `963f1da`（MiniMax 模型 + MoE + remapper）、`d8a3724`（InfiniOps 测试修正）、`da396ea`（NVIDIA 实测记录 + 补丁） | 已推送 `origin` |
+| **新架构**（InfiniOps） | `y258dd/InfiniOps` | `archive/lightning-attention-infinilm` | `4dcd249` + tag `lightning-attention-infinilm` | 已推送 `myfork` |
 
+- 新架构算子补丁：`docs/minimax/infiniops-lightning-attention.patch`（6 文件 / +630 行，与 `4dcd249` 内容一致）
+- 旧架构算子补丁：`docs/minimax/lightning-attention-infinicore.patch`（17 文件 / +990 行，基线 InfiniCore `35b46277`）
+- 如需向上游提 PR：https://github.com/y258dd/InfiniOps/pull/new/archive/lightning-attention-infinilm
+- 实测环境与结果：NVIDIA GeForce RTX 5090（sm_120）、CUDA Toolkit 12.8.61、CUDA 驱动 610.43.02；`pytest tests/test_lightning_attention_infinilm.py -v` → **48 passed**
