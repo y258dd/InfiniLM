@@ -212,9 +212,9 @@ git apply /path/to/lightning-attention-infinicore.patch
 | 线 | 仓库 | 分支 | 提交 / tag | 状态 |
 |---|---|---|---|---|
 | **旧架构**（重构前 InfiniCore） | `y258dd/InfiniLM` | `archive/minimax` | `963f1da`（MiniMax 模型 + MoE + remapper）、`d8a3724`（InfiniOps 测试修正）、`da396ea`（NVIDIA 实测记录 + 补丁） | 已推送 `origin` |
-| **新架构**（InfiniOps） | `y258dd/InfiniOps` | `archive/lightning-attention-infinilm` | `4dcd249`（CPU + NVIDIA）+ tag `lightning-attention-infinilm`；`447dd94`（Ascend）+ tag `lightning-attention-infinilm-ascend` | `4dcd249` 已推送 `myfork`；`447dd94` 仍在本地，待 push |
+| **新架构**（InfiniOps） | `y258dd/InfiniOps` | `archive/lightning-attention-infinilm` | `4dcd249`（CPU + NVIDIA）+ tag `lightning-attention-infinilm`；`4bf370d`（Ascend）+ tag `lightning-attention-infinilm-ascend` | `4dcd249` 已推送 `myfork`；`4bf370d` 仍在本地，待 push |
 
-- 新架构算子补丁：`docs/minimax/infiniops-lightning-attention.patch`（7 文件 / +1019 行，包含 `4dcd249` + `447dd94` 的 CPU/NVIDIA/Ascend 实现）
+- 新架构算子补丁：`docs/minimax/infiniops-lightning-attention.patch`（7 文件 / +1019 行，包含 `4dcd249` + `4bf370d` 的 CPU/NVIDIA/Ascend 实现）
 - 昇腾增量补丁：`docs/minimax/infiniops-ascend-lightning-attention.patch`（1 文件 / +389 行，适用于已应用旧版 CPU/NVIDIA 补丁的服务器）
 - 旧架构算子补丁：`docs/minimax/lightning-attention-infinicore.patch`（17 文件 / +990 行，基线 InfiniCore `35b46277`）
 - 如需向上游提 PR：https://github.com/y258dd/InfiniOps/pull/new/archive/lightning-attention-infinilm
