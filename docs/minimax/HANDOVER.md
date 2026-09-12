@@ -1,7 +1,7 @@
 # MiniMax 支持：归档与交接说明
 
 > 本文记录「为 InfiniCore 重构做归档准备」这一轮（任务 A）实际做了什么、产出了什么、你还需要执行什么。
-> 技术迁移细节见 `docs/minimax/PORTING.md`；算子补丁见 `docs/minimax/lightning-attention-infinicore.patch`。
+> 技术迁移细节见 `docs/minimax/PORTING.md` 与 `docs/minimax/INFINIOPS_PORT.md`；算子补丁见 `docs/minimax/lightning-attention-infinicore.patch`（旧架构）和 `docs/minimax/infiniops-lightning-attention.patch`（新架构 CPU/NVIDIA/Ascend）。
 
 ## 1. 现状：重构已经落地
 
@@ -203,18 +203,18 @@ git apply /path/to/lightning-attention-infinicore.patch
 | P0 | 封存（第 4 节的提交 + tag + push） | 本地未提交改动是唯一副本，先落盘 |
 | P1 | NVIDIA 服务器：编译验证（1 小时） | 验证 CUDA kernel 可编译；失败把日志给我，我来修 |
 | P2 | NVIDIA 服务器：跑三个测试（半天） | 拿到 GPU 实测证据（评审材料里「只有 CPU 验证」是弱点） |
-| P3 | 昇腾服务器：**只做平台不回归验证** | 当前 minimax 在昇腾跑不了（缺昇腾 kernel、MoE runner 为 CUDA 专属、CI ascend 段被注释） |
+| P3 | 昇腾服务器：**平台准备 + 本算子真机验证** | ACLNN 组合实现已写完并提交；当前仍缺昇腾真机编译/数值回归证据。MiniMax 整模型还受 MoE runner 与上游迁移影响 |
 | P4 | **InfiniOps 移植（已完成 ✅）** | 已在 NVIDIA（RTX 5090 / sm_120）上构建并测试：**48/48 通过**；详见 `INFINIOPS_PORT.md` 与 `infiniops-lightning-attention.patch` |
-| P5 | 昇腾后端（可选加分） | 在 InfiniOps 的 `src/native/ascend/ops/lightning_attention_infinilm/` 补昇腾实现（当前只有 CPU + NVIDIA 后端） |
+| P5 | 昇腾后端（代码完成 ✅ / 真机待验证） | `src/native/ascend/ops/lightning_attention_infinilm/kernel.h` 已实现 ACLNN Mul + Matmul + Add、workspace 状态池和 int32/int64 索引；见 `INFINIOPS_PORT.md` 第 4.3/5.2 节 |
 
 ## 8. 归档记录（最终）
 
 | 线 | 仓库 | 分支 | 提交 / tag | 状态 |
 |---|---|---|---|---|
 | **旧架构**（重构前 InfiniCore） | `y258dd/InfiniLM` | `archive/minimax` | `963f1da`（MiniMax 模型 + MoE + remapper）、`d8a3724`（InfiniOps 测试修正）、`da396ea`（NVIDIA 实测记录 + 补丁） | 已推送 `origin` |
-| **新架构**（InfiniOps） | `y258dd/InfiniOps` | `archive/lightning-attention-infinilm` | `4dcd249` + tag `lightning-attention-infinilm` | 已推送 `myfork` |
+| **新架构**（InfiniOps） | `y258dd/InfiniOps` | `archive/lightning-attention-infinilm` | `4dcd249`（CPU + NVIDIA）+ tag `lightning-attention-infinilm`；`447dd94`（Ascend）+ tag `lightning-attention-infinilm-ascend` | `4dcd249` 已推送 `myfork`；`447dd94` 仍在本地，待 push |
 
-- 新架构算子补丁：`docs/minimax/infiniops-lightning-attention.patch`（6 文件 / +630 行，与 `4dcd249` 内容一致）
+- 新架构算子补丁：`docs/minimax/infiniops-lightning-attention.patch`（7 文件 / +1019 行，包含 `4dcd249` + `447dd94` 的 CPU/NVIDIA/Ascend 实现）
 - 旧架构算子补丁：`docs/minimax/lightning-attention-infinicore.patch`（17 文件 / +990 行，基线 InfiniCore `35b46277`）
 - 如需向上游提 PR：https://github.com/y258dd/InfiniOps/pull/new/archive/lightning-attention-infinilm
 - 实测环境与结果：NVIDIA GeForce RTX 5090（sm_120）、CUDA Toolkit 12.8.61、CUDA 驱动 610.43.02；`pytest tests/test_lightning_attention_infinilm.py -v` → **48 passed**

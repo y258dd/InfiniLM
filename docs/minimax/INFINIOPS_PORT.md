@@ -1,6 +1,6 @@
 # 迁移 `lightning_attention` 到 InfiniOps（新架构）
 
-> 配套补丁：`docs/minimax/infiniops-lightning-attention.patch`（CPU + CUDA + pytest，6 文件 / +619 行）
+> 配套补丁：`docs/minimax/infiniops-lightning-attention.patch`（CPU + NVIDIA + Ascend + pytest，7 文件 / +1019 行）
 > 旧架构补丁（归档基线用）：`docs/minimax/lightning-attention-infinicore.patch`
 
 ## 1. 为什么要迁到 InfiniOps
@@ -9,9 +9,9 @@ InfiniCore 已完成重构（`26f7382d refactor!: reduce InfiniCore to unified c
 
 - 旧的 `infinicore::` C++ API（`op::*`、`nn::*`、`Tensor`、graph）在新版顶层已不存在。
 - **InfiniLM 主干尚未迁移**（上游 `270feb3e`），因此现在无法把 minimax **模型**迁到新版；能且应该迁移的是**算子**。
-- 本补丁交付 `lightning_attention_infinilm` 的 **CPU + NVIDIA CUDA** 后端与 pytest。
+- 本补丁交付 `lightning_attention_infinilm` 的 **CPU + NVIDIA CUDA + 昇腾 ACLNN** 后端与 pytest。昇腾部分为 correctness-first 的 aclnn 组合实现，需在昇腾真机完成最终编译与回归。
 
-## 2. 补丁内容（6 个文件）
+## 2. 补丁内容（7 个文件）
 
 | 文件 | 说明 |
 |---|---|
@@ -20,6 +20,7 @@ InfiniCore 已完成重构（`26f7382d refactor!: reduce InfiniCore to unified c
 | `src/native/cuda/ops/lightning_attention_infinilm/kernel.cuh` | CUDA device kernel（每 `(batch, head)` 一块，每线程一列状态） |
 | `src/native/cuda/ops/lightning_attention_infinilm/kernel.h` | CUDA launcher（`CudaLightningAttentionInfinilm<Backend>`，按 dtype/index dtype 分发） |
 | `src/native/cuda/nvidia/ops/lightning_attention_infinilm/kernel.h` | NVIDIA vendor 绑定（`Operator<..., kNvidia>`） |
+| `src/native/ascend/ops/lightning_attention_infinilm/kernel.h` | 昇腾 ACLNN 组合实现（Mul + Matmul + Add，工作区状态池，支持 f32/f16/bf16 与 int32/int64 索引） |
 | `tests/test_lightning_attention_infinilm.py` | pytest：4 组形状 × 3 种 dtype，分别断言输出与状态池 |
 
 ## 3. 接口与语义设计
@@ -72,7 +73,44 @@ out_t[h] = q_t[h] @ S                                # 再读状态（当前 tok
 | **CUTLASS** | 由 CMake `FetchContent` 自动下载，**不需要手动装**；网络受限时要预置或配代理 |
 | **PyTorch（CUDA 版）** | 测试参考实现需要；NGC 镜像自带 |
 
-### 4.3 完整命令（Linux 服务器）
+### 4.3 测 Ascend 额外需要
+
+| 依赖 | 说明 |
+|---|---|
+| **CANN Toolkit** | 建议使用与你租用的昇腾机器、驱动/固件匹配的版本；安装后 `source /usr/local/Ascend/ascend-toolkit/set_env.sh`，并确认 `ASCEND_HOME_PATH` 指向 toolkit 根目录 |
+| **昇腾驱动/固件** | `npu-smi info` 能看到设备，容器内能看到 `/dev/davinci*` 和 `/dev/davinci_manager` |
+| **PyTorch + torch_npu** | 测试参考实现和 `torch.npu` device/stream 需要；版本必须与 Python、CANN 匹配 |
+| **ACLNN 算子库** | 本实现使用 `aclnnMul`、`aclnnAdd`、`aclnnMatmul`，由 CANN 自带；不需要额外安装 |
+| **AscendC 编译器** | 本算子走 ACLNN，不走 AscendC；若只验证本算子，可用 `-DBUILD_ASCEND_CUSTOM=OFF` 跳过 `ccec` 构建 |
+
+最小构建命令（服务器上可直接逐行粘贴）：
+
+```bash
+source /usr/local/Ascend/ascend-toolkit/set_env.sh
+export ASCEND_HOME_PATH=${ASCEND_HOME_PATH:-/usr/local/Ascend/ascend-toolkit/latest}
+npu-smi info
+python3 -c "import torch, torch_npu; print(torch.__version__, torch_npu.__version__, torch.npu.is_available())"
+```
+
+```bash
+git clone --recursive https://github.com/InfiniTensor/InfiniRT.git
+cmake -S InfiniRT -B build-rt -DCMAKE_INSTALL_PREFIX=$HOME/infinirt -DWITH_CPU=ON -DWITH_ASCEND=ON
+cmake --build build-rt -j
+cmake --install build-rt
+```
+
+```bash
+git clone https://github.com/InfiniTensor/InfiniOps.git
+cd InfiniOps
+git apply /path/to/docs/minimax/infiniops-lightning-attention.patch
+python -m pip install ".[dev]" --break-system-packages --config-settings=cmake.define.INFINI_RT_ROOT=$HOME/infinirt --config-settings=cmake.define.WITH_CPU=ON --config-settings=cmake.define.WITH_ASCEND=ON --config-settings=cmake.define.BUILD_ASCEND_CUSTOM=OFF --config-settings=cmake.define.INFINI_OPS_OPS=lightning_attention_infinilm
+pytest tests/test_lightning_attention_infinilm.py --devices ascend -v
+```
+
+- 昇腾真机首次验证时，优先先跑 `--devices cpu` 确认测试本身和参考实现正常，再跑 `--devices ascend`。
+- 若同一个 conda/venv 里同时有 CUDA 版 PyTorch 和 torch_npu，必须按华为官方要求处理冲突；最简单是单独的昇腾环境。
+
+### 4.4 完整命令（NVIDIA Linux 服务器）
 
 ```bash
 # 0) 自检
@@ -107,7 +145,9 @@ pytest tests/test_lightning_attention_infinilm.py -v
 - 只想先验 CPU：把第 1、3 步的 `-DWITH_NVIDIA=ON` 去掉即可（更快，也不需要 CUDA/CUTLASS）。
 - 想只编本算子加速 configure/build：追加 `--config-settings=cmake.define.INFINI_OPS_OPS=lightning_attention_infinilm`。
 
-## 5. NVIDIA 服务器实测记录（2026-09-12）
+## 5. 实测记录
+
+### 5.1 NVIDIA 真机验证
 
 | 项目 | 结果 |
 |---|---|
@@ -125,9 +165,35 @@ pytest tests/test_lightning_attention_infinilm.py -v
 1. `initial_state` 曾声明为 `const Tensor`，而该张量需要被就地更新 → 编译期 `invalid type conversion`（已改为非常量视图，`q/k/v/slope/indices` 保持 const）；
 2. 测试曾使用 `final_index = initial_index + 1`，使请求 `b=0` 的**写入行**成为请求 `b=1` 的**读取行**——CPU 串行语义与 CUDA 并行语义因此不一致（已改为跨请求读写行互不相交，并把「请求独立、可并发执行」写入算子契约）；
 3. torch 参考实现未模拟「状态按张量 dtype 存储」的舍入，低估了 bf16 误差（参考实现已同步每步舍入；bf16 容差调为 `4e-2`，理由是递推累积）。
+
+### 5.2 昇腾后端实现状态（静态完成，待真机验证）
+
+昇腾目录：`src/native/ascend/ops/lightning_attention_infinilm/kernel.h`。
+
+实现思路：CANN 没有现成的 fused lightning-attention 算子，因此组合 ACLNN 算子完成递推：
+
+```
+ratio   = exp(-slope)                              # 每个 head 一次
+decayed = Mul(state, ratio)                        # ratio 形状 [H, 1, 1]
+outer   = Matmul(k_t [H, D, 1], v_t [H, 1, D])
+state   = Add(decayed, outer)
+out_t   = Matmul(q_t [H, 1, D], state)
+```
+
+每个 request 先在 workspace 行里暂存初始状态，在该行上跑完所有 token，最后异步写回 `final_state_indices` 指定的目标行。因此：
+
+- `initial_state_indices` 指向的源行在整个 request 内只读，读行和写行不同不会被提前污染；
+- 不同 request 的 state workspace 在同一 stream 上按顺序复用，跨 request 可并发的前提仍是“目的行不能是另一个 request 的源行”；
+- 状态工作区、decay 临时区、outer 临时区和 ratio 区都通过 `GetWorkspacePool().Ensure()` 获取，避免在算子内部直接管理临时内存；
+- 输入索引和 slope 在开始时统一同步后读回 host，状态 staging/writeback 使用 `aclrtMemcpyAsync(..., stream)`，保持算子正常异步语义。
+
+支持范围与测试矩阵一致：`float32` / `float16` / `bfloat16`，索引 `int32` / `int64`，输出与状态池分别断言。
+
+> 当前只在 Windows 上用 mock CANN/ACLNN 头做了 C++17 语法检查，并做了补丁反向校验；**尚未在昇腾真机编译或运行**。真机上若报错，优先检查 `/usr/local/Ascend/.../set_env.sh`、`ASCEND_HOME_PATH`、torch_npu 与 CANN 版本，以及 `aclrtMemcpyAsync` 的流/指针合法性。
+
 ## 6. 已知限制与下一步
 
-- 本机（Windows，无 CMake）**未编译**本补丁；只做了 `py_compile`、人工复核与补丁反向校验（`git apply --check -R` 通过）。首次在服务器上编译可能有细节需要微调，按报错修即可。
+- 本机（Windows，无 CANN）**未做真机编译**；已完成 C++17 mock-header 语法检查、补丁反向校验（`git apply --check -R` 通过）和 `git diff --check`。NVIDIA 真机回归为 48/48 通过，昇腾真机回归仍待执行。
 - CUDA kernel 假定 `head_dim` 能放进一个 block（`head_dim <= Backend::max_block_size`，launcher 里有 assert），典型 MiniMax `head_dim = 128` 满足。
-- **Ascend 后端**下一步：写到 `src/native/ascend/ops/lightning_attention_infinilm/`（InfiniOps 已有 AscendC 自定义 kernel 机制）。
+- **Ascend 后端**：ACLNN 组合实现已落地，下一步是在昇腾真机执行第 4.3 节命令并修正平台差异；若性能不达标，再考虑 AscendC fused kernel。
 - **InfiniLM 侧适配**：等上游完成 InfiniLM → 新栈迁移后，把 `MiniMaxLightningAttention` 的调用点换成 `infini::ops::LightningAttentionInfinilm`（一处调用 + 状态池形状对齐），模型其余代码不动。
