@@ -23,6 +23,8 @@ InfiniCore 已完成重构（`26f7382d refactor!: reduce InfiniCore to unified c
 | `src/native/ascend/ops/lightning_attention_infinilm/kernel.h` | 昇腾 ACLNN 组合实现（Mul + Matmul + Add，工作区状态池，支持 f32/f16/bf16 与 int32/int64 索引） |
 | `tests/test_lightning_attention_infinilm.py` | pytest：4 组形状 × 3 种 dtype，分别断言输出与状态池 |
 
+> 如果服务器已经应用过旧版 6 文件补丁（CPU + NVIDIA），不要重复应用累计补丁；直接应用 `infiniops-ascend-lightning-attention.patch` 即可。
+
 ## 3. 接口与语义设计
 
 ### 3.1 对齐目标与命名
@@ -102,11 +104,12 @@ cmake --install build-rt
 ```bash
 git clone https://github.com/InfiniTensor/InfiniOps.git
 cd InfiniOps
-git apply /path/to/docs/minimax/infiniops-lightning-attention.patch
+git apply /path/to/docs/minimax/infiniops-ascend-lightning-attention.patch
 python -m pip install ".[dev]" --break-system-packages --config-settings=cmake.define.INFINI_RT_ROOT=$HOME/infinirt --config-settings=cmake.define.WITH_CPU=ON --config-settings=cmake.define.WITH_ASCEND=ON --config-settings=cmake.define.BUILD_ASCEND_CUSTOM=OFF --config-settings=cmake.define.INFINI_OPS_OPS=lightning_attention_infinilm
 pytest tests/test_lightning_attention_infinilm.py --devices ascend -v
 ```
 
+- 上面第 2 段命令按“服务器已经应用过旧版 CPU/NVIDIA 补丁”的情况使用昇腾增量补丁；如果是干净 clone，则改用累计补丁 `infiniops-lightning-attention.patch`。
 - 昇腾真机首次验证时，优先先跑 `--devices cpu` 确认测试本身和参考实现正常，再跑 `--devices ascend`。
 - 若同一个 conda/venv 里同时有 CUDA 版 PyTorch 和 torch_npu，必须按华为官方要求处理冲突；最简单是单独的昇腾环境。
 
@@ -130,7 +133,7 @@ cmake --install build-rt
 # 2) 取 InfiniOps 并应用补丁
 git clone https://github.com/InfiniTensor/InfiniOps.git
 cd InfiniOps
-git apply /path/to/docs/minimax/infiniops-lightning-attention.patch
+git apply /path/to/docs/minimax/infiniops-ascend-lightning-attention.patch
 
 # 3) 构建安装 InfiniOps（CPU + NVIDIA）
 python -m pip install ".[dev]" \

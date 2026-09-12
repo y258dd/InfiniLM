@@ -215,6 +215,7 @@ git apply /path/to/lightning-attention-infinicore.patch
 | **新架构**（InfiniOps） | `y258dd/InfiniOps` | `archive/lightning-attention-infinilm` | `4dcd249`（CPU + NVIDIA）+ tag `lightning-attention-infinilm`；`447dd94`（Ascend）+ tag `lightning-attention-infinilm-ascend` | `4dcd249` 已推送 `myfork`；`447dd94` 仍在本地，待 push |
 
 - 新架构算子补丁：`docs/minimax/infiniops-lightning-attention.patch`（7 文件 / +1019 行，包含 `4dcd249` + `447dd94` 的 CPU/NVIDIA/Ascend 实现）
+- 昇腾增量补丁：`docs/minimax/infiniops-ascend-lightning-attention.patch`（1 文件 / +389 行，适用于已应用旧版 CPU/NVIDIA 补丁的服务器）
 - 旧架构算子补丁：`docs/minimax/lightning-attention-infinicore.patch`（17 文件 / +990 行，基线 InfiniCore `35b46277`）
 - 如需向上游提 PR：https://github.com/y258dd/InfiniOps/pull/new/archive/lightning-attention-infinilm
 - 实测环境与结果：NVIDIA GeForce RTX 5090（sm_120）、CUDA Toolkit 12.8.61、CUDA 驱动 610.43.02；`pytest tests/test_lightning_attention_infinilm.py -v` → **48 passed**
