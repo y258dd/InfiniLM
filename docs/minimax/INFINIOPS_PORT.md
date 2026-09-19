@@ -169,7 +169,16 @@ pytest tests/test_lightning_attention_infinilm.py -v
 2. 测试曾使用 `final_index = initial_index + 1`，使请求 `b=0` 的**写入行**成为请求 `b=1` 的**读取行**——CPU 串行语义与 CUDA 并行语义因此不一致（已改为跨请求读写行互不相交，并把「请求独立、可并发执行」写入算子契约）；
 3. torch 参考实现未模拟「状态按张量 dtype 存储」的舍入，低估了 bf16 误差（参考实现已同步每步舍入；bf16 容差调为 `4e-2`，理由是递推累积）。
 
-### 5.2 昇腾后端实现状态（静态完成，待真机验证）
+### 5.2 昇腾 910B1 真机验证（CANN 9.0.0）
+
+| 项目 | 结果 |
+|---|---|
+| 硬件 | 单卡昇腾 910B1 64GB；驱动/工具 `npu-smi 25.5.1`；固件 `7.8.0.6.201` |
+| 软件 | CANN 9.0.0；Python 3.11.15；torch 2.10.0+cpu；torch_npu 2.10.0；`torch.npu.is_available() == True` |
+| InfiniRT | `-DWITH_CPU=ON -DWITH_ASCEND=ON` 编译安装成功，aarch64 安装到 `lib64` |
+| InfiniOps | wheel 构建成功：`infiniops-0.1.0-cp311-cp311-linux_aarch64.whl` |
+| 本算子测试 | `python3 -m pytest tests/test_lightning_attention_infinilm.py --devices ascend -v` → **24 passed** |
+| 覆盖 | NPU 后端；float32/float16/bfloat16；4 组形状；输出与状态池分别断言；索引矩阵覆盖 int32 |
 
 昇腾目录：`src/native/ascend/ops/lightning_attention_infinilm/kernel.h`。
 
@@ -190,13 +199,13 @@ out_t   = Matmul(q_t [H, 1, D], state)
 - 状态工作区、decay 临时区、outer 临时区和 ratio 区都通过 `GetWorkspacePool().Ensure()` 获取，避免在算子内部直接管理临时内存；
 - 输入索引和 slope 在开始时统一同步后读回 host，状态 staging/writeback 使用 `aclrtMemcpyAsync(..., stream)`，保持算子正常异步语义。
 
-支持范围与测试矩阵一致：`float32` / `float16` / `bfloat16`，索引 `int32` / `int64`，输出与状态池分别断言。
+支持范围：`float32` / `float16` / `bfloat16`；索引接口支持 `int32` 和 `int64`，当前 pytest 矩阵实际覆盖 `int32`，输出与状态池分别断言。
 
-> 当前只在 Windows 上用 mock CANN/ACLNN 头做了 C++17 语法检查，并做了补丁反向校验；**尚未在昇腾真机编译或运行**。真机上若报错，优先检查 `/usr/local/Ascend/.../set_env.sh`、`ASCEND_HOME_PATH`、torch_npu 与 CANN 版本，以及 `aclrtMemcpyAsync` 的流/指针合法性。
+> 真机联调期间初版 `float32` 输出用例失败，原因是 `aclnnMatmul` 使用 `cube_math_type=1` 时发生了 FP32 降精度；将 FP32 路径改为 `cube_math_type=0` 后，昇腾全部 24 个用例通过。`torch_npu` 对小型 `torch.arange(..., device="npu")` 的 internal-format warning 不影响结果。
 
 ## 6. 已知限制与下一步
 
-- 本机（Windows，无 CANN）**未做真机编译**；已完成 C++17 mock-header 语法检查、补丁反向校验（`git apply --check -R` 通过）和 `git diff --check`。NVIDIA 真机回归为 48/48 通过，昇腾真机回归仍待执行。
+- 本机（Windows，无 CANN）未做真机编译；NVIDIA 真机回归 48/48 通过，昇腾 910B1 真机回归 24/24 通过。
 - CUDA kernel 假定 `head_dim` 能放进一个 block（`head_dim <= Backend::max_block_size`，launcher 里有 assert），典型 MiniMax `head_dim = 128` 满足。
-- **Ascend 后端**：ACLNN 组合实现已落地，下一步是在昇腾真机执行第 4.3 节命令并修正平台差异；若性能不达标，再考虑 AscendC fused kernel。
+- **Ascend 后端**：ACLNN 组合实现已在 910B1 + CANN 9.0.0 上真机通过 24/24；当前实现以正确性为先，性能优化可后续转向 AscendC fused kernel。
 - **InfiniLM 侧适配**：等上游完成 InfiniLM → 新栈迁移后，把 `MiniMaxLightningAttention` 的调用点换成 `infini::ops::LightningAttentionInfinilm`（一处调用 + 状态池形状对齐），模型其余代码不动。
